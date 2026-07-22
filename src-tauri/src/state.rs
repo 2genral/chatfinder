@@ -4,6 +4,8 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
+const INDEX_VERSION: i64 = 2;
+
 #[derive(Clone)]
 pub struct AppState {
     pub db_path: PathBuf,
@@ -57,6 +59,17 @@ impl AppState {
                 "#,
             )
             .map_err(|error| error.to_string())?;
+        let current_version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .map_err(|error| error.to_string())?;
+        if current_version < INDEX_VERSION {
+            connection
+                .execute_batch("DELETE FROM messages; DELETE FROM sessions;")
+                .map_err(|error| error.to_string())?;
+            connection
+                .pragma_update(None, "user_version", INDEX_VERSION)
+                .map_err(|error| error.to_string())?;
+        }
         Ok(())
     }
 }
@@ -72,4 +85,54 @@ fn configure_connection(connection: &Connection) -> Result<(), String> {
             "#,
         )
         .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clears_an_outdated_index() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "chatfinder-state-test-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let database = directory.join("test.sqlite3");
+        let state = AppState::new(database.clone()).unwrap();
+        let connection = state.connect().unwrap();
+        connection
+            .execute_batch(
+                r#"
+                INSERT INTO sessions(
+                    source_path, provider, session_id, updated_at, file_size,
+                    modified_ns, indexed_messages, indexed_at
+                ) VALUES ('/tmp/chat.jsonl', 'codex', 'chat-id', '2026-07-22', 1, 1, 1, '2026-07-22');
+                INSERT INTO messages(text, role, source_path)
+                VALUES ('message', 'user', '/tmp/chat.jsonl');
+                PRAGMA user_version = 1;
+                "#,
+            )
+            .unwrap();
+        drop(connection);
+
+        let upgraded = AppState::new(database).unwrap();
+        let connection = upgraded.connect().unwrap();
+        let sessions: i64 = connection
+            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
+            .unwrap();
+        let messages: i64 = connection
+            .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
+            .unwrap();
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!((sessions, messages, version), (0, 0, INDEX_VERSION));
+        drop(connection);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 }

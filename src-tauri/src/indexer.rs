@@ -20,12 +20,17 @@ use walkdir::WalkDir;
 const MAX_LINE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_FRAGMENT_BYTES: usize = 512 * 1024;
 const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
+const MAX_TITLE_CHARS: usize = 96;
+const USER_TITLE_PRIORITY: u8 = 1;
+const AI_TITLE_PRIORITY: u8 = 2;
+const CUSTOM_TITLE_PRIORITY: u8 = 3;
 
 #[derive(Default)]
 struct SessionMetadata {
     session_id: String,
     cwd: Option<String>,
     title: Option<String>,
+    title_priority: u8,
     started_at: Option<String>,
 }
 
@@ -290,8 +295,13 @@ fn index_source(
                 if !seen.insert(hasher.finish()) {
                     continue;
                 }
-                if metadata.title.is_none() && message.role == "user" {
-                    metadata.title = title_from_text(&message.text);
+                if message.role == "user" {
+                    update_title(
+                        &mut metadata,
+                        title_from_text(&message.text),
+                        USER_TITLE_PRIORITY,
+                        false,
+                    );
                 }
                 insert
                     .execute(params![message.text, message.role, source_path])
@@ -302,7 +312,12 @@ fn index_source(
     }
 
     if let Some(index_title) = titles.get(&metadata.session_id) {
-        metadata.title = Some(index_title.clone());
+        update_title(
+            &mut metadata,
+            clean_title(index_title),
+            CUSTOM_TITLE_PRIORITY,
+            true,
+        );
     }
 
     transaction
@@ -380,6 +395,27 @@ fn remove_missing_sources(
 fn update_metadata(provider: Provider, record: &Value, metadata: &mut SessionMetadata) {
     match provider {
         Provider::Claude => {
+            match record.get("type").and_then(Value::as_str) {
+                Some("ai-title") => update_title(
+                    metadata,
+                    record
+                        .get("aiTitle")
+                        .and_then(Value::as_str)
+                        .and_then(clean_title),
+                    AI_TITLE_PRIORITY,
+                    true,
+                ),
+                Some("custom-title") => update_title(
+                    metadata,
+                    record
+                        .get("customTitle")
+                        .and_then(Value::as_str)
+                        .and_then(clean_title),
+                    CUSTOM_TITLE_PRIORITY,
+                    true,
+                ),
+                _ => {}
+            }
             if let Some(session_id) = record.get("sessionId").and_then(Value::as_str) {
                 metadata.session_id = session_id.to_string();
             }
@@ -666,9 +702,81 @@ fn normalize_text(text: &str) -> String {
 }
 
 fn title_from_text(text: &str) -> Option<String> {
-    let title: String = text.chars().take(96).collect();
-    let title = title.trim();
-    (!title.is_empty()).then(|| title.to_string())
+    let normalized = normalize_text(text);
+    let lower = normalized.to_lowercase();
+    let simple = lower.trim_matches(|character: char| !character.is_alphanumeric());
+    let generated = normalized.starts_with('<')
+        || lower.starts_with("[request interrupted")
+        || lower.starts_with("base directory for this skill:")
+        || lower.starts_with("caveat: the messages below were generated");
+    let trivial = matches!(
+        simple,
+        "hi" | "hello"
+            | "hey"
+            | "yo"
+            | "merhaba"
+            | "selam"
+            | "salam"
+            | "naber"
+            | "nasilsin"
+            | "nasılsın"
+            | "burada misin"
+            | "burada mısın"
+            | "orada misin"
+            | "orada mısın"
+            | "are you there"
+            | "merhaba burada misin"
+            | "merhaba burada mısın"
+            | "selam burada misin"
+            | "selam burada mısın"
+            | "evet"
+            | "ok"
+            | "okay"
+            | "tamam"
+            | "devam"
+            | "continue"
+    );
+
+    if generated || trivial {
+        None
+    } else {
+        clean_title(&normalized)
+    }
+}
+
+fn clean_title(text: &str) -> Option<String> {
+    let normalized = normalize_text(text);
+    if normalized.is_empty() {
+        return None;
+    }
+    if normalized.chars().count() <= MAX_TITLE_CHARS {
+        return Some(normalized);
+    }
+
+    let prefix: String = normalized.chars().take(MAX_TITLE_CHARS - 1).collect();
+    let boundary = prefix
+        .rfind(char::is_whitespace)
+        .filter(|position| *position >= MAX_TITLE_CHARS / 2)
+        .unwrap_or(prefix.len());
+    Some(format!("{}…", prefix[..boundary].trim_end()))
+}
+
+fn update_title(
+    metadata: &mut SessionMetadata,
+    title: Option<String>,
+    priority: u8,
+    replace_same_priority: bool,
+) {
+    let Some(title) = title else {
+        return;
+    };
+    if priority < metadata.title_priority
+        || (priority == metadata.title_priority && !replace_same_priority)
+    {
+        return;
+    }
+    metadata.title = Some(title);
+    metadata.title_priority = priority;
 }
 
 fn fallback_session_id(path: &Path) -> String {
@@ -790,6 +898,51 @@ mod tests {
         let messages = extract_codex_messages(&record);
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].text, "find db.ts");
+    }
+
+    #[test]
+    fn filters_generated_and_trivial_title_candidates() {
+        assert_eq!(
+            title_from_text("<environment_context><cwd>/tmp</cwd></environment_context>"),
+            None
+        );
+        assert_eq!(
+            title_from_text("<local-command-caveat>Generated command</local-command-caveat>"),
+            None
+        );
+        assert_eq!(title_from_text("merhaba"), None);
+        assert_eq!(title_from_text("[Request interrupted by user]"), None);
+        assert_eq!(
+            title_from_text("codex chat sessionlarimin icinde streamboxd.com kelimesini bul"),
+            Some("codex chat sessionlarimin icinde streamboxd.com kelimesini bul".to_string())
+        );
+    }
+
+    #[test]
+    fn prefers_custom_and_ai_titles_over_user_text() {
+        let mut metadata = SessionMetadata::default();
+        update_title(
+            &mut metadata,
+            title_from_text("first useful user prompt"),
+            USER_TITLE_PRIORITY,
+            false,
+        );
+        update_metadata(
+            Provider::Claude,
+            &serde_json::json!({"type": "ai-title", "aiTitle": "Generated chat title"}),
+            &mut metadata,
+        );
+        update_metadata(
+            Provider::Claude,
+            &serde_json::json!({"type": "custom-title", "customTitle": "My custom title"}),
+            &mut metadata,
+        );
+        update_metadata(
+            Provider::Claude,
+            &serde_json::json!({"type": "ai-title", "aiTitle": "Later generated title"}),
+            &mut metadata,
+        );
+        assert_eq!(metadata.title.as_deref(), Some("My custom title"));
     }
 
     #[test]
