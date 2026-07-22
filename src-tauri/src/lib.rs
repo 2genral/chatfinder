@@ -1,4 +1,5 @@
 mod indexer;
+mod launcher;
 mod models;
 mod search;
 mod state;
@@ -40,6 +41,27 @@ async fn search_sessions(
     .map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+async fn launch_target(
+    target: String,
+    provider: String,
+    session_id: String,
+    cwd: Option<String>,
+    source_path: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        launcher::launch(
+            &target,
+            &provider,
+            &session_id,
+            cwd.as_deref(),
+            &source_path,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -55,7 +77,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_status,
             sync_index,
-            search_sessions
+            search_sessions,
+            launch_target
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

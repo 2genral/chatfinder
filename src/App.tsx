@@ -10,7 +10,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { DetailPanel } from "./components/DetailPanel";
 import { ResultList } from "./components/ResultList";
 import { SourcePanel } from "./components/SourcePanel";
-import { getStatus, searchSessions, syncIndex } from "./lib/api";
+import { getStatus, launchTarget, searchSessions, syncIndex } from "./lib/api";
 import type {
   AppStatus,
   IndexProgress,
@@ -152,6 +152,17 @@ function App() {
     }
   }, []);
 
+  const openTarget = useCallback(async (target: "chat" | "vscode", result: SearchResult) => {
+    try {
+      await launchTarget(target, result);
+      const label = target === "vscode" ? "VS Code" : result.provider === "claude" ? "Claude" : "Codex";
+      setNotice(`${label} opened`);
+      setError(null);
+    } catch (launchError) {
+      setError(String(launchError));
+    }
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const command = event.metaKey || event.ctrlKey;
@@ -189,7 +200,7 @@ function App() {
       }
       if (event.key === "Enter" && selectedResult) {
         event.preventDefault();
-        void revealResult(selectedResult);
+        void openTarget("chat", selectedResult);
         return;
       }
       if (event.key === "Escape") {
@@ -205,7 +216,7 @@ function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [copyValue, query, results.length, revealResult, runIndex, selectedResult, showSources, status.isIndexing]);
+  }, [copyValue, openTarget, query, results.length, revealResult, runIndex, selectedResult, showSources, status.isIndexing]);
 
   const progressPercent = progress && progress.total > 0
     ? Math.round((progress.processed / progress.total) * 100)
@@ -289,10 +300,16 @@ function App() {
             isSearching={isSearching}
             isIndexing={status.isIndexing}
             onSelect={setSelectedIndex}
-            onOpen={(result) => void revealResult(result)}
+            onOpen={(result) => void openTarget("chat", result)}
           />
         </div>
-        <DetailPanel result={selectedResult} onCopy={copyValue} onReveal={(result) => void revealResult(result)} />
+        <DetailPanel
+          result={selectedResult}
+          onCopy={copyValue}
+          onOpenChat={(result) => void openTarget("chat", result)}
+          onOpenVscode={(result) => void openTarget("vscode", result)}
+          onReveal={(result) => void revealResult(result)}
+        />
       </section>
 
       <footer className="statusbar">
@@ -308,7 +325,7 @@ function App() {
         </div>
         <div className="shortcuts" aria-label="Keyboard shortcuts">
           <span><kbd>↑↓</kbd> Select</span>
-          <span><kbd>↵</kbd> Reveal</span>
+          <span><kbd>↵</kbd> Open chat</span>
           <span><kbd>{modifier} ⇧ C</kbd> Copy ID</span>
           <span><kbd>{modifier} O</kbd> Open</span>
         </div>

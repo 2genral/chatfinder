@@ -10,6 +10,8 @@ Chatfinder discovers the default chat folders on macOS, Windows, and Linux, extr
 - Supports active and archived Claude Code and Codex sessions
 - Incremental indexing based on file size and modification time
 - Skips oversized attachment and binary-like JSONL records
+- Resumes a selected session in Claude Code or Codex
+- Opens the chat project directly in Visual Studio Code
 - Reveals the original chat file in Finder, Explorer, or the Linux file manager
 - Uses the operating system WebView through Tauri; the macOS app bundle is about 12 MB
 - Stores the index locally and makes no network requests
@@ -20,7 +22,8 @@ Chatfinder discovers the default chat folders on macOS, Windows, and Linux, extr
 | --- | --- | --- |
 | Focus search | `⌘ K` | `Ctrl K` |
 | Move selection | `↑` / `↓` | `↑` / `↓` |
-| Reveal selected file | `Enter` or `⌘ O` | `Enter` or `Ctrl O` |
+| Open selected chat | `Enter` | `Enter` |
+| Reveal selected file | `⌘ O` | `Ctrl O` |
 | Copy chat ID | `⌘ Shift C` | `Ctrl Shift C` |
 | Refresh index | `⌘ R` | `Ctrl R` |
 
@@ -43,6 +46,7 @@ Prerequisites:
 - Node.js 22+
 - Rust stable
 - Platform dependencies listed in the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
+- Claude Code, Codex, and Visual Studio Code for their respective launch actions
 
 ```bash
 npm install

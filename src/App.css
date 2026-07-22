@@ -385,6 +385,11 @@ kbd {
   height: 14px;
 }
 
+.brand-icon {
+  display: block;
+  fill: currentcolor;
+}
+
 .provider-mark--claude {
   color: var(--claude);
 }
@@ -572,8 +577,9 @@ mark {
 .detail-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
-  margin: 20px 0 22px;
+  margin: 20px 0 8px;
 }
 
 .action-button {
@@ -609,6 +615,21 @@ mark {
   background: #edf3ff;
 }
 
+.action-button--claude {
+  border-color: #bc7956;
+  background: #d99b72;
+  color: #231610;
+}
+
+.action-button--claude:hover:not(:disabled) {
+  border-color: #d99b72;
+  background: #e9ad84;
+}
+
+.action-button--codex .brand-icon {
+  color: #245db5;
+}
+
 .action-button--full {
   width: 100%;
   margin-top: 16px;
@@ -633,6 +654,46 @@ mark {
 .icon-button svg {
   width: 14px;
   height: 14px;
+}
+
+.action-button .brand-icon--vscode {
+  color: #55a7e8;
+}
+
+.copy-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0 0 22px;
+}
+
+.copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.copy-button:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.copy-button svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -976,6 +1037,17 @@ mark {
   .action-button--primary:hover:not(:disabled) {
     border-color: #194f9f;
     background: #215fbf;
+  }
+
+  .action-button--claude {
+    border-color: #a85835;
+    background: #c87650;
+    color: #ffffff;
+  }
+
+  .action-button--claude:hover:not(:disabled) {
+    border-color: #984c2d;
+    background: #b96742;
   }
 
   .toast {

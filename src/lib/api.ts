@@ -21,3 +21,13 @@ export function searchSessions(query: string, provider: ProviderFilter) {
     limit: 100,
   });
 }
+
+export function launchTarget(target: "chat" | "vscode", result: SearchResult) {
+  return invoke<void>("launch_target", {
+    target,
+    provider: result.provider,
+    sessionId: result.sessionId,
+    cwd: result.cwd,
+    sourcePath: result.sourcePath,
+  });
+}
